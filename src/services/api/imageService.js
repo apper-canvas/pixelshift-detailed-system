@@ -1,3 +1,5 @@
+import React from "react";
+import Error from "@/components/ui/Error";
 export const imageService = {
   convertImage: async (file, outputFormat, quality = 85) => {
     return new Promise((resolve, reject) => {
@@ -79,8 +81,19 @@ export const imageService = {
         reject(new Error("Failed to get image dimensions"));
         URL.revokeObjectURL(img.src);
       };
-
-      img.src = URL.createObjectURL(file);
+img.src = URL.createObjectURL(file);
     });
+  },
+
+  // Track conversion for history
+  trackConversion: (originalFile, convertedBlob, outputFormat, quality) => {
+    return {
+      originalName: originalFile.name,
+      originalSize: originalFile.size,
+      convertedSize: convertedBlob.size,
+      outputFormat: outputFormat,
+      quality: quality,
+      timestamp: new Date().toISOString()
+    };
   }
 };

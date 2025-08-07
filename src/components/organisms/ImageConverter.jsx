@@ -1,21 +1,22 @@
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "react-toastify";
+import { imageService } from "@/services/api/imageService";
 import ApperIcon from "@/components/ApperIcon";
-import Button from "@/components/atoms/Button";
 import FileUpload from "@/components/molecules/FileUpload";
 import FormatSelector from "@/components/molecules/FormatSelector";
-import QualitySlider from "@/components/molecules/QualitySlider";
 import ImagePreviewCard from "@/components/molecules/ImagePreviewCard";
+import QualitySlider from "@/components/molecules/QualitySlider";
 import Empty from "@/components/ui/Empty";
-import { imageService } from "@/services/api/imageService";
+import Button from "@/components/atoms/Button";
 import { generateId } from "@/utils/helpers";
 
 const ImageConverter = () => {
   const [images, setImages] = useState([]);
   const [outputFormat, setOutputFormat] = useState("jpeg");
   const [quality, setQuality] = useState(85);
-  const [isConverting, setIsConverting] = useState(false);
+const [isConverting, setIsConverting] = useState(false);
+  const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
 
   const handleFilesSelected = async (files) => {
     const newImages = files.map(file => ({
@@ -55,11 +56,25 @@ const ImageConverter = () => {
               ...img, 
               convertedBlob,
               convertedSize: convertedBlob.size,
-              convertedFormat: outputFormat,
+convertedFormat: outputFormat,
               status: "converted"
             }
           : img
       ));
+
+      // Save to conversion history
+      try {
+        const { conversionHistoryService } = await import('@/services/api/conversionHistoryService');
+        conversionHistoryService.create({
+          originalName: imageFile.name,
+          originalSize: imageFile.size,
+          outputFormat: outputFormat,
+          quality: quality,
+          convertedSize: convertedBlob.size
+        });
+      } catch (error) {
+        console.error('Failed to save conversion history:', error);
+      }
 
       return true;
     } catch (error) {
@@ -159,6 +174,12 @@ const ImageConverter = () => {
     });
     setImages([]);
     toast.info("All images cleared");
+};
+
+  const handleApplyHistorySettings = (settings) => {
+    setOutputFormat(settings.outputFormat);
+    setQuality(settings.quality);
+    setIsHistoryPanelOpen(false);
   };
 
   // Update converted format and quality for existing images when settings change
@@ -172,7 +193,16 @@ const ImageConverter = () => {
                ? "pending" 
                : img.status
     })));
-  }, [outputFormat, quality]);
+}, [outputFormat, quality]);
+
+  // Import ConversionHistoryPanel dynamically
+  const [ConversionHistoryPanel, setConversionHistoryPanel] = useState(null);
+  
+  useEffect(() => {
+    import('./ConversionHistoryPanel').then(module => {
+      setConversionHistoryPanel(() => module.default);
+    });
+  }, []);
 
   const convertedCount = images.filter(img => img.status === "converted").length;
   const hasConvertedImages = convertedCount > 0;
@@ -275,8 +305,34 @@ const ImageConverter = () => {
                 />
               ))}
             </AnimatePresence>
-          </motion.div>
+</motion.div>
         </div>
+      )}
+
+      {/* History Panel Toggle */}
+      <motion.div
+        className="mt-6 flex justify-center"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.4 }}
+      >
+        <Button
+          onClick={() => setIsHistoryPanelOpen(true)}
+          variant="ghost"
+          className="text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600"
+        >
+          <ApperIcon name="History" size={16} className="mr-2" />
+          View Conversion History
+        </Button>
+      </motion.div>
+
+      {/* Conversion History Panel */}
+      {ConversionHistoryPanel && (
+        <ConversionHistoryPanel
+          isOpen={isHistoryPanelOpen}
+          onClose={() => setIsHistoryPanelOpen(false)}
+          onApplySettings={handleApplyHistorySettings}
+        />
       )}
     </div>
   );

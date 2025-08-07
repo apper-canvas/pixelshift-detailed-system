@@ -1,6 +1,19 @@
 import { loadStripe } from '@stripe/stripe-js';
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+// Validate Stripe configuration
+const stripePublishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+
+if (!stripePublishableKey) {
+  console.error('VITE_STRIPE_PUBLISHABLE_KEY is not defined in environment variables');
+  throw new Error('Stripe configuration missing. Please check your environment variables.');
+}
+
+if (!stripePublishableKey.startsWith('pk_')) {
+  console.error('Invalid Stripe publishable key format:', stripePublishableKey);
+  throw new Error('Invalid Stripe publishable key format. Key should start with "pk_"');
+}
+
+const stripePromise = loadStripe(stripePublishableKey);
 
 class PaymentService {
   constructor() {

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "react-toastify";
 import { imageService } from "@/services/api/imageService";
+import { paymentService } from "@/services/api/paymentService";
 import ApperIcon from "@/components/ApperIcon";
 import FileUpload from "@/components/molecules/FileUpload";
 import FormatSelector from "@/components/molecules/FormatSelector";
@@ -12,12 +13,13 @@ import Button from "@/components/atoms/Button";
 import { generateId } from "@/utils/helpers";
 
 const ImageConverter = () => {
-  const [images, setImages] = useState([]);
+const [images, setImages] = useState([]);
   const [outputFormat, setOutputFormat] = useState("jpeg");
   const [quality, setQuality] = useState(85);
-const [isConverting, setIsConverting] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
-
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [hasPaymentAccess, setHasPaymentAccess] = useState(false);
   const handleFilesSelected = async (files) => {
     const newImages = files.map(file => ({
       id: generateId(),
@@ -88,9 +90,50 @@ convertedFormat: outputFormat,
     }
   };
 
-  const handleConvertAll = async () => {
+const handlePaymentAndConvert = async () => {
     if (images.length === 0) return;
 
+    // Check if user already has payment access
+    if (hasPaymentAccess || paymentService.checkPaymentStatus()) {
+      await performConversion();
+      return;
+    }
+
+    // Start payment process
+    setIsProcessingPayment(true);
+
+    try {
+      // Create checkout session
+      const sessionResult = await paymentService.createCheckoutSession(images.length);
+      
+      if (!sessionResult.success) {
+        toast.error("Failed to create payment session. Please try again.");
+        setIsProcessingPayment(false);
+        return;
+      }
+
+      const amount = paymentService.formatPrice(sessionResult.amount);
+      toast.info(`Processing payment of $${amount} for ${images.length} image${images.length > 1 ? 's' : ''}...`);
+
+      // Redirect to checkout
+      const paymentResult = await paymentService.redirectToCheckout(sessionResult.sessionId);
+
+      if (paymentResult.success) {
+        setHasPaymentAccess(true);
+        toast.success("Payment successful! Converting images now...");
+        await performConversion();
+      } else {
+        toast.error("Payment failed. Please try again.");
+      }
+    } catch (error) {
+      console.error("Payment error:", error);
+      toast.error("Payment processing failed. Please try again.");
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
+  const performConversion = async () => {
     setIsConverting(true);
     const pendingImages = images.filter(img => 
       img.status === "pending" || 
@@ -124,6 +167,9 @@ convertedFormat: outputFormat,
       toast.error(`Failed to convert ${pendingImages.length - successCount} image${pendingImages.length - successCount > 1 ? "s" : ""}`);
     }
   };
+
+  // Legacy method name for backward compatibility
+  const handleConvertAll = handlePaymentAndConvert;
 
   const handleDownload = (imageFile) => {
     if (!imageFile.convertedBlob) return;
@@ -228,24 +274,41 @@ convertedFormat: outputFormat,
           />
           
           <div className="space-y-3">
-            <Button 
-              onClick={handleConvertAll}
-              disabled={images.length === 0 || isConverting}
+<Button 
+              onClick={handlePaymentAndConvert}
+              disabled={images.length === 0 || isConverting || isProcessingPayment}
               className="w-full"
               size="lg"
             >
-              {isConverting ? (
+              {isProcessingPayment ? (
+                <>
+                  <ApperIcon name="CreditCard" size={16} className="mr-2 animate-pulse" />
+                  Processing Payment...
+                </>
+              ) : isConverting ? (
                 <>
                   <ApperIcon name="Loader2" size={16} className="mr-2 animate-spin" />
                   Converting...
                 </>
-              ) : (
+              ) : hasPaymentAccess || paymentService.checkPaymentStatus() ? (
                 <>
                   <ApperIcon name="Zap" size={16} className="mr-2" />
                   Convert All Images
                 </>
+              ) : (
+                <>
+                  <ApperIcon name="CreditCard" size={16} className="mr-2" />
+                  Pay & Convert (${paymentService.formatPrice(paymentService.calculateAmount(images.length))})
+                </>
               )}
             </Button>
+
+            {!hasPaymentAccess && !paymentService.checkPaymentStatus() && images.length > 0 && (
+              <div className="text-center text-sm text-gray-400 mt-2">
+                <ApperIcon name="Info" size={14} className="inline mr-1" />
+                ${paymentService.formatPrice(100)} per image • Secure payment via Stripe
+              </div>
+            )}
             
             {hasConvertedImages && (
               <Button 
